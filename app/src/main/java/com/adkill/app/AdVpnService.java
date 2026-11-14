@@ -11,7 +11,7 @@ public class AdVpnService extends VpnService {
  private volatile boolean active=false;
  private ParcelFileDescriptor vpn;
  private Thread worker;
- private static final String[] BLOCK={"doubleclick.net","googlesyndication.com","googleadservices.com","adnxs.com","adsrvr.org","taboola.com","outbrain.com","applovin.com","vungle.com","chartboost.com","inmobi.com","pubmatic.com","criteo.com"};
+ private static final String[] BLOCK={"doubleclick.net","googlesyndication.com","googleadservices.com","adnxs.com","adsrvr.org","taboola.com","outbrain.com","pubmatic.com","criteo.com"};
  @Override public int onStartCommand(Intent intent,int flags,int startId){
   if(intent==null)return START_NOT_STICKY;
   if("STOP".equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
@@ -20,9 +20,9 @@ public class AdVpnService extends VpnService {
   if(packages==null||packages.isEmpty()){stopSelf();return START_NOT_STICKY;}
   try{
    NotificationManager nm=getSystemService(NotificationManager.class);
-   nm.createNotificationChannel(new NotificationChannel("adkill","ADKILL",NotificationManager.IMPORTANCE_LOW));
-   startForeground(1,new Notification.Builder(this,"adkill").setSmallIcon(android.R.drawable.ic_lock_lock).setContentTitle("ADKILL aktif").build());
-   Builder b=new Builder().setSession("ADKILL").setMtu(1500).addAddress("10.111.0.2",32).addDnsServer("10.111.0.1").addRoute("10.111.0.1",32).setBlocking(true);
+   nm.createNotificationChannel(new NotificationChannel("adkill","adkilimoncello",NotificationManager.IMPORTANCE_LOW));
+   startForeground(1,new Notification.Builder(this,"adkill").setSmallIcon(android.R.drawable.ic_lock_lock).setContentTitle("adkilimoncello aktif").build());
+   Builder b=new Builder().setSession("adkilimoncello").setMtu(1500).addAddress("10.111.0.2",32).addDnsServer("10.111.0.1").addRoute("10.111.0.1",32).setBlocking(true);
    for(String p:packages)b.addAllowedApplication(p);
    vpn=b.establish();
    if(vpn==null)throw new IOException("VPN permission denied");
@@ -59,12 +59,24 @@ public class AdVpnService extends VpnService {
    Arrays.fill(response,6,12,(byte)0);
    return response;
   }
-  try(DatagramSocket socket=new DatagramSocket()){
-   protect(socket);socket.setSoTimeout(3000);
-   socket.send(new DatagramPacket(query,query.length,InetAddress.getByName("1.1.1.1"),53));
-   byte[] buf=new byte[4096];DatagramPacket p=new DatagramPacket(buf,buf.length);socket.receive(p);
-   return Arrays.copyOf(buf,p.getLength());
-  }catch(Exception e){return null;}
+  // Try two public resolvers; never silently drop a DNS query.
+  String[] resolvers={"1.1.1.1","8.8.8.8"};
+  for(String resolver:resolvers){
+   try(DatagramSocket socket=new DatagramSocket()){
+    if(!protect(socket))continue;
+    socket.setSoTimeout(1800);
+    socket.send(new DatagramPacket(query,query.length,InetAddress.getByName(resolver),53));
+    byte[] buf=new byte[4096];DatagramPacket p=new DatagramPacket(buf,buf.length);
+    socket.receive(p);
+    if(p.getLength()>=12 && buf[0]==query[0] && buf[1]==query[1])
+     return Arrays.copyOf(buf,p.getLength());
+   }catch(Exception e){android.util.Log.w("adkilimoncello","DNS resolver failed: "+resolver,e);}
+  }
+  // Return SERVFAIL so the client can retry rather than hanging indefinitely.
+  byte[] failure=Arrays.copyOf(query,query.length);
+  failure[2]=(byte)0x81;failure[3]=(byte)0x82;
+  Arrays.fill(failure,6,12,(byte)0);
+  return failure;
  }
  private static String domain(byte[] q){
   int p=12;StringBuilder b=new StringBuilder();
